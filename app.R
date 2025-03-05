@@ -719,30 +719,41 @@ server <- function(input, output, session) {
 
                     if(length(SLIDE_res$SLIDE_res$marginal_vars) != 0) {
                       updateProgressText("Calculating control performance...")
-                      SLIDE::calcControlPerformance(z_matrix = z_matrix, y, do_interacts, 
-                                                  SLIDE_res, condition = input_params$eval_type, 
-                                                  loop_outpath)
-                    }
-
-                    updateProgressText("Calculating sample CV performance...")
-                    performance = SLIDE::sampleCV(y, z_matrix, SLIDE_res, 
+                      performance = SLIDE::sampleCV(y, z_matrix, SLIDE_res, 
                                                sampleCV_K = input_params$sampleCV_K,
                                                condition = input_params$eval_type, 
                                                sampleCV_iter = sampleCV_iter, 
                                                logistic = FALSE, 
                                                out_path = loop_outpath)
 
-                    if (do_interacts == TRUE) {
-                      interactors = c(SLIDE_res$interaction$p1, SLIDE_res$interaction$p2)
-                      interactors = interactors[!(interactors %in% SLIDE_res$marginal_vals)]
-                      interactors = unique(interactors)
-                      loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
-                                     all_latent_factors$K, length(SLIDE_res$marginal_vals), 
-                                     length(interactors), performance)
+                      SLIDE::calcControlPerformance(z_matrix = z_matrix, y, do_interacts, 
+                                                  SLIDE_res, condition = input_params$eval_type, 
+                                                  loop_outpath, 
+                                                  plot_title = sprintf("Control Performance (SampleCV: %.3f)", performance))
+
+                      updateProgressText("Calculating sample CV performance...")
+                      performance = SLIDE::sampleCV(y, z_matrix, SLIDE_res, 
+                                               sampleCV_K = input_params$sampleCV_K,
+                                               condition = input_params$eval_type, 
+                                               sampleCV_iter = sampleCV_iter, 
+                                               logistic = FALSE, 
+                                               out_path = loop_outpath)
+
+                      if (do_interacts == TRUE) {
+                        interactors = c(SLIDE_res$interaction$p1, SLIDE_res$interaction$p2)
+                        interactors = interactors[!(interactors %in% SLIDE_res$marginal_vals)]
+                        interactors = unique(interactors)
+                        loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
+                                       all_latent_factors$K, length(SLIDE_res$marginal_vals), 
+                                       length(interactors), performance)
+                      } else {
+                        loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
+                                       all_latent_factors$K, length(SLIDE_res$marginal_vals), 
+                                       'NA', performance)
+                      }
                     } else {
                       loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
-                                     all_latent_factors$K, length(SLIDE_res$marginal_vals), 
-                                     'NA', performance)
+                                     all_latent_factors$K, "NA", "NA", "NA")
                     }
                   } else {
                     loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
@@ -863,7 +874,19 @@ server <- function(input, output, session) {
             div(
               class = "text-center",
               style = "flex: 1; min-width: 0;",
-              h5(tools::file_path_sans_ext(plot_file), class = "mb-2"),
+              h5(
+                sprintf(
+                  "%s", 
+                  case_when(
+                    plot_file == "ControlPerformancePlot.png" ~ sprintf("Performance: %.3f", selected_row$sampleCV_Performance),
+                    plot_file == "plotInteractions.png" ~ "Interactions",
+                    plot_file == "plotSigGenes_marginals.png" ~ sprintf("Features (Total LFs: %s)", selected_row$Num_of_LFs),
+                    TRUE ~ tools::file_path_sans_ext(plot_file)
+                  ),
+                  selected_row$sampleCV_Performance
+                ), 
+                class = "mb-2"
+              ),
               tags$img(
                 src = image_url,
                 style = "width: 100%; max-height: 400px; object-fit: contain;",
