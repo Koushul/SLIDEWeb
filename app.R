@@ -87,6 +87,27 @@ ui <- page_navbar(
         padding-right: 20px;
       }
       
+      /* Validation icons */
+      .validation-icon {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 2;
+      }
+      .validation-icon.valid {
+        color: #28a745;
+      }
+      .validation-icon.invalid {
+        color: #dc3545;
+      }
+      
+      /* Path input container */
+      .path-input-container {
+        position: relative;
+        width: 100%;
+      }
+      
       .path-input.overflow input:focus,
       .path-input.overflow input:hover {
         overflow: visible;
@@ -193,6 +214,49 @@ ui <- page_navbar(
       .btn-info:hover {
         filter: brightness(0.85);
       }
+
+      /* Disabled button styles */
+      .btn-disabled {
+        opacity: 0.5 !important;
+        cursor: not-allowed !important;
+        pointer-events: none !important;
+      }
+
+      /* Progress bar animation */
+      @keyframes progress-bar-stripes {
+        from { background-position: 1rem 0; }
+        to { background-position: 0 0; }
+      }
+
+      .progress-bar {
+        background-image: linear-gradient(45deg, 
+          rgba(255, 255, 255, 0.15) 25%, 
+          transparent 25%, 
+          transparent 50%, 
+          rgba(255, 255, 255, 0.15) 50%, 
+          rgba(255, 255, 255, 0.15) 75%, 
+          transparent 75%, 
+          transparent);
+        background-size: 1rem 1rem;
+      }
+
+      .progress.active .progress-bar {
+        animation: progress-bar-stripes 1s linear infinite;
+      }
+
+      /* Add active class to progress bar container when running */
+      .shiny-progress.active .progress {
+        height: 0.5rem;
+        background-color: #e9ecef;
+        border-radius: 0.25rem;
+        margin: 0.5rem 0;
+      }
+
+      .shiny-progress.active .progress .progress-bar {
+        height: 100%;
+        border-radius: 0.25rem;
+        transition: width 0.6s ease;
+      }
     ")),
     tags$script(HTML("
       $(document).ready(function() {
@@ -200,6 +264,43 @@ ui <- page_navbar(
           if (!path) return '';
           const parts = path.split('/');
           return parts[parts.length - 1] || path;
+        }
+
+        // Add functions to manage button states
+        window.enableButton = function(buttonId) {
+          $('#' + buttonId).removeClass('btn-disabled');
+        }
+
+        window.disableButton = function(buttonId) {
+          $('#' + buttonId).addClass('btn-disabled');
+        }
+
+        // Add functions to manage progress bar animation
+        window.startProgressAnimation = function() {
+          $('.shiny-progress').addClass('active');
+          $('.progress').addClass('active');
+        }
+
+        window.stopProgressAnimation = function() {
+          $('.shiny-progress').removeClass('active');
+          $('.progress').removeClass('active');
+        }
+
+        // Observe Shiny progress events
+        $(document).on('shiny:progressing', function(event) {
+          startProgressAnimation();
+        });
+
+        $(document).on('shiny:idle', function(event) {
+          stopProgressAnimation();
+        });
+
+        window.disableAllRunButtons = function() {
+          $('#run_slide, #run_slidecv').addClass('btn-disabled');
+        }
+
+        window.enableAllRunButtons = function() {
+          $('#run_slide, #run_slidecv').removeClass('btn-disabled');
         }
 
         function updatePathDisplay() {
@@ -276,7 +377,10 @@ ui <- page_navbar(
         conditionalPanel(
           condition = "input.input_type === false",
           tags$div(class = "path-input-truncate",
-            textInput("x_path", "X data file path (CSV)", value = "")
+            div(class = "path-input-container",
+              textInput("x_path", "X data file path (CSV)", value = ""),
+              tags$i(id = "x_path_icon", class = "fas validation-icon")
+            )
           )
         ),
         uiOutput("x_shape_info"),
@@ -287,7 +391,10 @@ ui <- page_navbar(
         conditionalPanel(
           condition = "input.input_type === false",
           tags$div(class = "path-input-truncate",
-            textInput("y_path", "Y data file path (CSV)", value = "")
+            div(class = "path-input-container",
+              textInput("y_path", "Y data file path (CSV)", value = ""),
+              tags$i(id = "y_path_icon", class = "fas validation-icon")
+            )
           )
         ),
         tags$div(class = "path-input-truncate",
@@ -364,7 +471,7 @@ ui <- page_navbar(
         hr(),
         div(
           style = "margin-top: 10px;",
-          actionButton("run_slide", "Run SLIDE", class = "btn-success w-100")
+          actionButton("run_slide", "Run SLIDE", class = "btn-success w-100 btn-disabled")
         ),
         div(
           style = "margin-top: 10px;",
@@ -402,14 +509,40 @@ server <- function(input, output, session) {
   # Add reactive value to store the current R process
   current_process <- reactiveVal(NULL)
   
-  # Observer to update button appearance based on state
+  # Add reactive values for file validation
+  x_file_valid <- reactiveVal(FALSE)
+  y_file_valid <- reactiveVal(FALSE)
+
+  # Initialize JavaScript functions
+  js <- list(
+    enableButton = function(buttonId) {
+      shinyjs::removeClass(buttonId, "btn-disabled")
+    },
+    disableButton = function(buttonId) {
+      shinyjs::addClass(buttonId, "btn-disabled")
+    },
+    disableAllRunButtons = function() {
+      shinyjs::addClass("run_slide", "btn-disabled")
+      shinyjs::addClass("run_slidecv", "btn-disabled")
+    },
+    enableAllRunButtons = function() {
+      shinyjs::removeClass("run_slide", "btn-disabled")
+      shinyjs::removeClass("run_slidecv", "btn-disabled")
+    }
+  )
+  
+  # Observer to update button states based on file validation and analysis state
   observe({
     if (analysis_running()) {
-      updateActionButton(session, "run_slide",
-                        label = "Cancel")
+      updateActionButton(session, "run_slide", label = "Cancel")
+      js$disableAllRunButtons()
     } else {
-      updateActionButton(session, "run_slide",
-                        label = "Run SLIDE")
+      updateActionButton(session, "run_slide", label = "Run SLIDE")
+      if (x_file_valid() && y_file_valid()) {
+        js$enableButton("run_slide")
+      } else {
+        js$disableButton("run_slide")
+      }
     }
   })
   
@@ -418,6 +551,20 @@ server <- function(input, output, session) {
     analysis_running(FALSE)
     should_cancel(FALSE)
     current_process(NULL)
+    
+    # Re-enable buttons based on validation state
+    if (x_file_valid() && y_file_valid()) {
+      js$enableButton("run_slide")
+    } else {
+      js$disableButton("run_slide")
+    }
+    
+    # Enable SLIDEcv button if results are available
+    if (!is.null(results$summary_table) && !is.null(input$summary_table_rows_selected)) {
+      js$enableButton("run_slidecv")
+    } else {
+      js$disableButton("run_slidecv")
+    }
   }
   
   output$x_shape_info <- renderUI({
@@ -584,6 +731,7 @@ server <- function(input, output, session) {
       # If analysis is not running, start new analysis
       should_cancel(FALSE)
       analysis_running(TRUE)
+      js$disableAllRunButtons()  # Disable buttons while analysis is running
       
       # First save the configuration
       tryCatch({
@@ -607,7 +755,6 @@ server <- function(input, output, session) {
             # Create a custom optimizeSLIDE function with progress updates
             optimizeSLIDE_with_progress <- function(input_params, sink_file = F) {
               # Initial setup progress
-              incProgress(0.1, detail = "Setting up parameters...")
               
               if (dir.exists(input_params$out_path)){
                 updateProgressText("Populating outputs to existing directory...")
@@ -641,11 +788,10 @@ server <- function(input, output, session) {
               sampleCV_iter = if(is.null(input_params$sampleCV_iter)) 500 else input_params$sampleCV_iter
               
               # Initialize summary table
-              summary_table <- as.data.frame(matrix(NA, nrow = length(delta) * length(lambda), ncol = 7))
-              colnames(summary_table) <- c('delta', 'lambda', 'f_size', 'Num_of_LFs', 'Num_of_Sig_LFs', 'Num_of_Interactors', 'sampleCV_Performance')
-
               total_iterations <- length(delta) * length(lambda)
               current_iteration <- 0
+              summary_table <- as.data.frame(matrix(NA, nrow = total_iterations, ncol = 7))
+              colnames(summary_table) <- c('delta', 'lambda', 'f_size', 'Num_of_LFs', 'Num_of_Sig_LFs', 'Num_of_Interactors', 'sampleCV_Performance')
 
               for (d in delta) {
                 for (l in lambda) {
@@ -728,8 +874,7 @@ server <- function(input, output, session) {
 
                       SLIDE::calcControlPerformance(z_matrix = z_matrix, y, do_interacts, 
                                                   SLIDE_res, condition = input_params$eval_type, 
-                                                  loop_outpath, 
-                                                  plot_title = sprintf("Control Performance (SampleCV: %.3f)", performance))
+                                                  loop_outpath)
 
                       updateProgressText("Calculating sample CV performance...")
                       performance = SLIDE::sampleCV(y, z_matrix, SLIDE_res, 
@@ -1172,6 +1317,105 @@ server <- function(input, output, session) {
       uiOutput("load_results_ui"),
       uiOutput("results_cards")
     )
+  })
+
+  # Observe file validity and update button states
+  observe({
+    if (analysis_running()) {
+      js$disableAllRunButtons()
+    } else {
+      if (x_file_valid() && y_file_valid()) {
+        js$enableButton('run_slide')
+      } else {
+        js$disableButton('run_slide')
+      }
+    }
+  })
+
+  # Update X file validation status
+  observe({
+    req(input$input_type == FALSE)  # Only run when in path mode
+    
+    # Validate X path
+    if (!is.null(input$x_path) && input$x_path != "") {
+      tryCatch({
+        if (file.exists(input$x_path)) {
+          x <- as.matrix(utils::read.csv(input$x_path, row.names = 1, check.names = F))
+          # If we get here, file is valid
+          shinyjs::removeClass(id = "x_path_icon", class = "fa-times invalid")
+          shinyjs::addClass(id = "x_path_icon", class = "fa-check valid")
+          x_file_valid(TRUE)
+        } else {
+          shinyjs::removeClass(id = "x_path_icon", class = "fa-check valid")
+          shinyjs::addClass(id = "x_path_icon", class = "fa-times invalid")
+          x_file_valid(FALSE)
+        }
+      }, error = function(e) {
+        shinyjs::removeClass(id = "x_path_icon", class = "fa-check valid")
+        shinyjs::addClass(id = "x_path_icon", class = "fa-times invalid")
+        x_file_valid(FALSE)
+      })
+    } else {
+      shinyjs::removeClass(id = "x_path_icon", class = "fa-check valid")
+      shinyjs::removeClass(id = "x_path_icon", class = "fa-times invalid")
+      x_file_valid(FALSE)
+    }
+  })
+  
+  # Update Y file validation status
+  observe({
+    req(input$input_type == FALSE)  # Only run when in path mode
+    
+    # Validate Y path
+    if (!is.null(input$y_path) && input$y_path != "") {
+      tryCatch({
+        if (file.exists(input$y_path)) {
+          y <- as.matrix(utils::read.csv(input$y_path, row.names = 1))
+          # If we get here, file is valid
+          shinyjs::removeClass(id = "y_path_icon", class = "fa-times invalid")
+          shinyjs::addClass(id = "y_path_icon", class = "fa-check valid")
+          y_file_valid(TRUE)
+        } else {
+          shinyjs::removeClass(id = "y_path_icon", class = "fa-check valid")
+          shinyjs::addClass(id = "y_path_icon", class = "fa-times invalid")
+          y_file_valid(FALSE)
+        }
+      }, error = function(e) {
+        shinyjs::removeClass(id = "y_path_icon", class = "fa-check valid")
+        shinyjs::addClass(id = "y_path_icon", class = "fa-times invalid")
+        y_file_valid(FALSE)
+      })
+    } else {
+      shinyjs::removeClass(id = "y_path_icon", class = "fa-check valid")
+      shinyjs::removeClass(id = "y_path_icon", class = "fa-times invalid")
+      y_file_valid(FALSE)
+    }
+  })
+
+  # Add validation for file upload mode
+  observe({
+    req(input$input_type == TRUE)  # Only run when in upload mode
+    
+    x_file_valid(FALSE)
+    y_file_valid(FALSE)
+    
+    if (!is.null(input$x_file)) {
+      tryCatch({
+        x <- as.matrix(utils::read.csv(input$x_file$datapath, row.names = 1, check.names = F))
+        x_file_valid(TRUE)
+      }, error = function(e) {
+        x_file_valid(FALSE)
+      })
+    }
+    
+    if (!is.null(input$y_file)) {
+      tryCatch({
+        y <- as.matrix(utils::read.csv(input$y_file$datapath, row.names = 1))
+        y_file_valid(TRUE)
+      }, error = function(e) {
+        y_file_valid(FALSE)
+      })
+    }
   })
 }
 
