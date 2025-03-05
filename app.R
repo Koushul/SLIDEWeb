@@ -73,6 +73,82 @@ ui <- page_navbar(
         padding: 8px 0;
       }
       
+      /* Path input field styling */
+      .path-input input {
+        width: 100%;
+        font-family: monospace;
+      }
+      
+      .path-input.overflow input {
+        position: relative;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding-right: 20px;
+      }
+      
+      .path-input.overflow input:focus,
+      .path-input.overflow input:hover {
+        overflow: visible;
+        white-space: normal;
+        word-wrap: break-word;
+        height: auto;
+        position: absolute;
+        background: white;
+        z-index: 1000;
+        width: 100%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 4px;
+      }
+      
+      /* Path input with truncation */
+      .path-input-truncate {
+        position: relative;
+        width: 100%;
+      }
+      
+      .path-input-truncate input {
+        width: 100%;
+        font-family: monospace;
+      }
+      
+      .path-input-truncate.overflow::after {
+        content: attr(data-path);
+        visibility: visible;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        direction: rtl;
+        padding: 6px 12px;
+        pointer-events: none;
+        background: transparent;
+      }
+      
+      .path-input-truncate.overflow input:focus,
+      .path-input-truncate.overflow input:hover {
+        position: relative;
+        z-index: 1;
+      }
+      
+      /* Wrapped path input styling */
+      .path-input-wrap input {
+        width: 100%;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      
+      .path-input-wrap input:focus,
+      .path-input-wrap input:hover {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        height: auto;
+      }
+      
       /* Button hover animations */
       .btn {
         transition: all 0.3s ease !important;
@@ -117,6 +193,68 @@ ui <- page_navbar(
       .btn-info:hover {
         filter: brightness(0.85);
       }
+    ")),
+    tags$script(HTML("
+      $(document).ready(function() {
+        function getFileName(path) {
+          if (!path) return '';
+          const parts = path.split('/');
+          return parts[parts.length - 1] || path;
+        }
+
+        function updatePathDisplay() {
+          $('.path-input input, .path-input-truncate input').each(function() {
+            const $input = $(this);
+            const $container = $input.parent();
+            const fullPath = $input.val();
+            
+            if (this.scrollWidth > this.clientWidth) {
+              $container.addClass('overflow');
+              if (!$input.is(':focus')) {
+                const fileName = getFileName(fullPath);
+                $input.attr('data-full-path', fullPath);
+                $input.val(fileName);
+              }
+            } else {
+              $container.removeClass('overflow');
+            }
+            
+            // Store full path for hover
+            $input.attr('title', fullPath);
+          });
+        }
+
+        // Update on input change
+        $(document).on('input', '.path-input input, .path-input-truncate input', function() {
+          const $input = $(this);
+          $input.attr('data-full-path', $input.val());
+          setTimeout(updatePathDisplay, 0);
+        });
+        
+        // Show full path on focus
+        $(document).on('focus', '.path-input input, .path-input-truncate input', function() {
+          const $input = $(this);
+          const fullPath = $input.attr('data-full-path');
+          if (fullPath) {
+            $input.val(fullPath);
+          }
+        });
+
+        // Show filename on blur
+        $(document).on('blur', '.path-input input, .path-input-truncate input', function() {
+          const $input = $(this);
+          const fullPath = $input.attr('data-full-path');
+          if (fullPath && this.scrollWidth > this.clientWidth) {
+            $input.val(getFileName(fullPath));
+          }
+        });
+        
+        // Initial check
+        setTimeout(updatePathDisplay, 100);
+        
+        // Update on window resize
+        $(window).on('resize', updatePathDisplay);
+      });
     "))
   ),
   nav_panel("", icon = icon("home"),
@@ -137,7 +275,9 @@ ui <- page_navbar(
         ),
         conditionalPanel(
           condition = "input.input_type === false",
-          textInput("x_path", "X data file path (CSV)", value = "")
+          tags$div(class = "path-input-truncate",
+            textInput("x_path", "X data file path (CSV)", value = "")
+          )
         ),
         uiOutput("x_shape_info"),
         conditionalPanel(
@@ -146,9 +286,13 @@ ui <- page_navbar(
         ),
         conditionalPanel(
           condition = "input.input_type === false",
-          textInput("y_path", "Y data file path (CSV)", value = "")
+          tags$div(class = "path-input-truncate",
+            textInput("y_path", "Y data file path (CSV)", value = "")
+          )
         ),
-        textInput("out_path", "Output Directory", value = "slide_results"),
+        tags$div(class = "path-input-truncate",
+          textInput("out_path", "Output Directory", value = "slide_results")
+        ),
         hr(),
         accordion(
           open=FALSE,
@@ -218,9 +362,6 @@ ui <- page_navbar(
           )
         ),
         hr(),
-        actionButton("save_yaml", "Save Configuration", 
-          class = "btn-primary btn-save-config w-100"
-        ),
         div(
           style = "margin-top: 10px;",
           actionButton("run_slide", "Run SLIDE", class = "btn-success w-100")
@@ -239,9 +380,10 @@ ui <- page_navbar(
         style = "height: calc(100vh - 56px); overflow-y: auto;",
         card(
           card_header("Load Results"),
-          textInput("results_path", "Results Directory Path", value = ""),
-          helpText("Enter the path to an existing SLIDE results directory"),
-          actionButton("load_results", "Load Results", class = "btn-info")
+          tags$div(class = "path-input-truncate",
+            textInput("results_path", "Results Directory Path", value = "")
+          ),
+          helpText("Enter the path to an existing SLIDE results directory")
         ),
         uiOutput("results_cards"),
         card(
@@ -522,195 +664,212 @@ server <- function(input, output, session) {
       # If analysis is not running, start new analysis
       should_cancel(FALSE)
       analysis_running(TRUE)
-      req(config())
       
-      shinyjs::addClass(selector = "#status_message", class = "status-running")
-      html("status_message", "Analysis in progress...")
-      
-      withProgress(message = 'Running SLIDE analysis...', value = 0, {
-        tryCatch({
-          # Create a custom optimizeSLIDE function with progress updates
-          optimizeSLIDE_with_progress <- function(input_params, sink_file = F) {
-            # Initial setup progress
-            incProgress(0.1, detail = "Setting up parameters...")
-            
-            if (dir.exists(input_params$out_path)){
-              updateProgressText("Populating outputs to existing directory...")
-            } else{
-              updateProgressText("Creating output directory...")
-              dir.create(file.path(input_params$out_path), showWarnings = F, recursive = T)
-            }
+      # First save the configuration
+      tryCatch({
+        yaml_config <- isolate(create_yaml_config())
+        if (is.null(yaml_config)) {
+          showNotification("Please check your input parameters", type = "error")
+          cleanup_analysis()
+          return()
+        }
+        
+        yaml_file <- file.path(isolate(input$out_path), "yaml_params.yaml")
+        dir.create(dirname(yaml_file), showWarnings = FALSE, recursive = TRUE)
+        yaml::write_yaml(yaml_config, yaml_file)
+        config(yaml_config)
+        
+        shinyjs::addClass(selector = "#status_message", class = "status-running")
+        html("status_message", "Analysis in progress...")
+        
+        withProgress(message = 'Running SLIDE analysis...', value = 0, {
+          tryCatch({
+            # Create a custom optimizeSLIDE function with progress updates
+            optimizeSLIDE_with_progress <- function(input_params, sink_file = F) {
+              # Initial setup progress
+              incProgress(0.1, detail = "Setting up parameters...")
+              
+              if (dir.exists(input_params$out_path)){
+                updateProgressText("Populating outputs to existing directory...")
+              } else{
+                updateProgressText("Creating output directory...")
+                dir.create(file.path(input_params$out_path), showWarnings = F, recursive = T)
+              }
 
-            # Check for early cancellation
-            if (should_cancel()) {
-              cleanup_analysis()
-              return(NULL)
-            }
+              # Check for early cancellation
+              if (should_cancel()) {
+                cleanup_analysis()
+                return(NULL)
+              }
 
-            # Load and process data
-            incProgress(0.2, detail = "Loading data matrices...")
-            x <- as.matrix(utils::read.csv(input_params$x_path, row.names = 1, check.names = F))
-            colnames(x) = stringr::str_replace_all(colnames(x), pattern = " ", replacement = "_")
-            y <- as.matrix(utils::read.csv(input_params$y_path, row.names = 1))
-            x_std <- scale(x, T, T)
+              # Load and process data
+              incProgress(0.2, detail = "Loading data matrices...")
+              x <- as.matrix(utils::read.csv(input_params$x_path, row.names = 1, check.names = F))
+              colnames(x) = stringr::str_replace_all(colnames(x), pattern = " ", replacement = "_")
+              y <- as.matrix(utils::read.csv(input_params$y_path, row.names = 1))
+              x_std <- scale(x, T, T)
 
-            # Initialize parameters
-            delta = if(is.null(input_params$delta)) c(0.01, 0.1) else input_params$delta
-            lambda = if(is.null(input_params$lambda)) c(0.5, 1.0) else input_params$lambda
-            alpha_level = if(is.null(input_params$alpha)) 0.05 else input_params$alpha
-            thresh_fdr = if(is.null(input_params$thresh_fdr)) 0.2 else input_params$thresh_fdr
-            spec = if(is.null(input_params$spec)) 0.1 else input_params$spec
-            do_interacts = if(is.null(input_params$do_interacts)) TRUE else input_params$do_interacts
-            SLIDE_iter = if(is.null(input_params$SLIDE_iter)) 1000 else input_params$SLIDE_iter
-            SLIDE_top_feats = if(is.null(input_params$SLIDE_top_feats)) 10 else input_params$SLIDE_top_feats
-            sampleCV_iter = if(is.null(input_params$sampleCV_iter)) 500 else input_params$sampleCV_iter
-            
-            # Initialize summary table
-            summary_table <- as.data.frame(matrix(NA, nrow = length(delta) * length(lambda), ncol = 7))
-            colnames(summary_table) <- c('delta', 'lambda', 'f_size', 'Num_of_LFs', 'Num_of_Sig_LFs', 'Num_of_Interactors', 'sampleCV_Performance')
+              # Initialize parameters
+              delta = if(is.null(input_params$delta)) c(0.01, 0.1) else input_params$delta
+              lambda = if(is.null(input_params$lambda)) c(0.5, 1.0) else input_params$lambda
+              alpha_level = if(is.null(input_params$alpha)) 0.05 else input_params$alpha
+              thresh_fdr = if(is.null(input_params$thresh_fdr)) 0.2 else input_params$thresh_fdr
+              spec = if(is.null(input_params$spec)) 0.1 else input_params$spec
+              do_interacts = if(is.null(input_params$do_interacts)) TRUE else input_params$do_interacts
+              SLIDE_iter = if(is.null(input_params$SLIDE_iter)) 1000 else input_params$SLIDE_iter
+              SLIDE_top_feats = if(is.null(input_params$SLIDE_top_feats)) 10 else input_params$SLIDE_top_feats
+              sampleCV_iter = if(is.null(input_params$sampleCV_iter)) 500 else input_params$sampleCV_iter
+              
+              # Initialize summary table
+              summary_table <- as.data.frame(matrix(NA, nrow = length(delta) * length(lambda), ncol = 7))
+              colnames(summary_table) <- c('delta', 'lambda', 'f_size', 'Num_of_LFs', 'Num_of_Sig_LFs', 'Num_of_Interactors', 'sampleCV_Performance')
 
-            total_iterations <- length(delta) * length(lambda)
-            current_iteration <- 0
+              total_iterations <- length(delta) * length(lambda)
+              current_iteration <- 0
 
-            for (d in delta) {
-              for (l in lambda) {
-                # Check for cancellation at each iteration
-                if (should_cancel()) {
-                  cleanup_analysis()
-                  return(NULL)
-                }
-                
-                current_iteration <- current_iteration + 1
-                progress_pct <- 0.2 + (0.8 * current_iteration / total_iterations)
-                
-                incProgress(progress_pct / total_iterations, 
-                           detail = sprintf("Processing delta=%.3f, lambda=%.3f (%d/%d)", 
-                                          d, l, current_iteration, total_iterations))
+              for (d in delta) {
+                for (l in lambda) {
+                  # Check for cancellation at each iteration
+                  if (should_cancel()) {
+                    cleanup_analysis()
+                    return(NULL)
+                  }
+                  
+                  current_iteration <- current_iteration + 1
+                  progress_pct <- 0.2 + (0.8 * current_iteration / total_iterations)
+                  
+                  incProgress(progress_pct / total_iterations, 
+                             detail = sprintf("Processing delta=%.3f, lambda=%.3f (%d/%d)", 
+                                            d, l, current_iteration, total_iterations))
 
-                loop_outpath = paste0(input_params$out_path, '/', d, '_', l, '_', 'out/')
-                dir.create(file.path(loop_outpath), showWarnings = F, recursive = T)
+                  loop_outpath = paste0(input_params$out_path, '/', d, '_', l, '_', 'out/')
+                  dir.create(file.path(loop_outpath), showWarnings = F, recursive = T)
 
-                # Save run-specific YAML for this iteration
-                run_yaml <- input_params
-                run_yaml$delta <- d
-                run_yaml$lambda <- l
-                run_yaml$out_path <- loop_outpath
-                yaml::write_yaml(run_yaml, paste0(loop_outpath, "yaml_params.yaml"))
+                  # Save run-specific YAML for this iteration
+                  run_yaml <- input_params
+                  run_yaml$delta <- d
+                  run_yaml$lambda <- l
+                  run_yaml$out_path <- loop_outpath
+                  yaml::write_yaml(run_yaml, paste0(loop_outpath, "yaml_params.yaml"))
 
-                updateProgressText(sprintf("Getting latent factors for delta=%.3f, lambda=%.3f...", d, l))
-                
-                if (input_params$y_factor) {
-                  y_temp <- SLIDE::toCont(y, input_params$y_levels)
-                  saveRDS(y_temp, file = paste0(input_params$out_path, "/binary_y_mapping.rds"))
-                  orig_y <- as.matrix(y_temp$cat_y)
-                  y <- as.matrix(y_temp$cont_y)
-                  row.names(y) <- row.names(y_temp$cat_y)
-                }
+                  updateProgressText(sprintf("Getting latent factors for delta=%.3f, lambda=%.3f...", d, l))
+                  
+                  if (input_params$y_factor) {
+                    y_temp <- SLIDE::toCont(y, input_params$y_levels)
+                    saveRDS(y_temp, file = paste0(input_params$out_path, "/binary_y_mapping.rds"))
+                    orig_y <- as.matrix(y_temp$cat_y)
+                    y <- as.matrix(y_temp$cont_y)
+                    row.names(y) <- row.names(y_temp$cat_y)
+                  }
 
-                all_latent_factors <- SLIDE::getLatentFactors(
-                  x = x,
-                  x_std = x_std,
-                  y = y,
-                  sigma = NULL,
-                  delta = d,
-                  lambda = l,
-                  rep_cv = input_params$rep_cv,
-                  alpha_level = alpha_level,
-                  thresh_fdr = thresh_fdr,
-                  out_path = loop_outpath
-                )
+                  all_latent_factors <- SLIDE::getLatentFactors(
+                    x = x,
+                    x_std = x_std,
+                    y = y,
+                    sigma = NULL,
+                    delta = d,
+                    lambda = l,
+                    rep_cv = input_params$rep_cv,
+                    alpha_level = alpha_level,
+                    thresh_fdr = thresh_fdr,
+                    out_path = loop_outpath
+                  )
 
-                saveRDS(all_latent_factors, paste0(loop_outpath, 'AllLatentFactors.rds'))
-                
-                updateProgressText("Calculating Z matrix...")
-                z_matrix <- SLIDE::calcZMatrix(x_std, all_latent_factors, x_path = NULL, 
-                                             lf_path = NULL, loop_outpath)
+                  saveRDS(all_latent_factors, paste0(loop_outpath, 'AllLatentFactors.rds'))
+                  
+                  updateProgressText("Calculating Z matrix...")
+                  z_matrix <- SLIDE::calcZMatrix(x_std, all_latent_factors, x_path = NULL, 
+                                               lf_path = NULL, loop_outpath)
 
-                updateProgressText("Running SLIDE analysis...")
-                SLIDE_res <- SLIDE::runSLIDE(y, y_path = NULL, z_path = NULL, z_matrix, 
-                                           all_latent_factors, lf_path = NULL, niter = SLIDE_iter, 
-                                           spec = spec, do_interacts = do_interacts)
-                
-                saveRDS(SLIDE_res, paste0(loop_outpath, 'SLIDE_LFs.rds'))
-
-                if(length(SLIDE_res$SLIDE_res$marginal_vars) != 0) {
-                  updateProgressText("Processing top features...")
-                  SLIDE_res <- SLIDE::getTopFeatures(x, y, all_latent_factors, loop_outpath, 
-                                                   SLIDE_res, num_top_feats = SLIDE_top_feats, 
-                                                   condition = input_params$eval_type)
+                  updateProgressText("Running SLIDE analysis...")
+                  SLIDE_res <- SLIDE::runSLIDE(y, y_path = NULL, z_path = NULL, z_matrix, 
+                                             all_latent_factors, lf_path = NULL, niter = SLIDE_iter, 
+                                             spec = spec, do_interacts = do_interacts)
                   
                   saveRDS(SLIDE_res, paste0(loop_outpath, 'SLIDE_LFs.rds'))
-                  SLIDE::plotSigGenes(SLIDE_res, plot_interaction = do_interacts, out_path = loop_outpath)
 
                   if(length(SLIDE_res$SLIDE_res$marginal_vars) != 0) {
-                    updateProgressText("Calculating control performance...")
-                    SLIDE::calcControlPerformance(z_matrix = z_matrix, y, do_interacts, 
-                                                SLIDE_res, condition = input_params$eval_type, 
-                                                loop_outpath)
-                  }
+                    updateProgressText("Processing top features...")
+                    SLIDE_res <- SLIDE::getTopFeatures(x, y, all_latent_factors, loop_outpath, 
+                                                     SLIDE_res, num_top_feats = SLIDE_top_feats, 
+                                                     condition = input_params$eval_type)
+                    
+                    saveRDS(SLIDE_res, paste0(loop_outpath, 'SLIDE_LFs.rds'))
+                    SLIDE::plotSigGenes(SLIDE_res, plot_interaction = do_interacts, out_path = loop_outpath)
 
-                  updateProgressText("Calculating sample CV performance...")
-                  performance = SLIDE::sampleCV(y, z_matrix, SLIDE_res, 
-                                             sampleCV_K = input_params$sampleCV_K,
-                                             condition = input_params$eval_type, 
-                                             sampleCV_iter = sampleCV_iter, 
-                                             logistic = FALSE, 
-                                             out_path = loop_outpath)
+                    if(length(SLIDE_res$SLIDE_res$marginal_vars) != 0) {
+                      updateProgressText("Calculating control performance...")
+                      SLIDE::calcControlPerformance(z_matrix = z_matrix, y, do_interacts, 
+                                                  SLIDE_res, condition = input_params$eval_type, 
+                                                  loop_outpath)
+                    }
 
-                  if (do_interacts == TRUE) {
-                    interactors = c(SLIDE_res$interaction$p1, SLIDE_res$interaction$p2)
-                    interactors = interactors[!(interactors %in% SLIDE_res$marginal_vals)]
-                    interactors = unique(interactors)
-                    loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
-                                   all_latent_factors$K, length(SLIDE_res$marginal_vals), 
-                                   length(interactors), performance)
+                    updateProgressText("Calculating sample CV performance...")
+                    performance = SLIDE::sampleCV(y, z_matrix, SLIDE_res, 
+                                               sampleCV_K = input_params$sampleCV_K,
+                                               condition = input_params$eval_type, 
+                                               sampleCV_iter = sampleCV_iter, 
+                                               logistic = FALSE, 
+                                               out_path = loop_outpath)
+
+                    if (do_interacts == TRUE) {
+                      interactors = c(SLIDE_res$interaction$p1, SLIDE_res$interaction$p2)
+                      interactors = interactors[!(interactors %in% SLIDE_res$marginal_vals)]
+                      interactors = unique(interactors)
+                      loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
+                                     all_latent_factors$K, length(SLIDE_res$marginal_vals), 
+                                     length(interactors), performance)
+                    } else {
+                      loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
+                                     all_latent_factors$K, length(SLIDE_res$marginal_vals), 
+                                     'NA', performance)
+                    }
                   } else {
                     loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
-                                   all_latent_factors$K, length(SLIDE_res$marginal_vals), 
-                                   'NA', performance)
+                                   all_latent_factors$K, "NA", "NA", "NA")
                   }
-                } else {
-                  loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
-                                 all_latent_factors$K, "NA", "NA", "NA")
+                  
+                  summary_table[current_iteration, ] = loop_summary
+                  updateProgressText(sprintf("Completed iteration %d/%d", current_iteration, total_iterations))
                 }
-                
-                summary_table[current_iteration, ] = loop_summary
-                updateProgressText(sprintf("Completed iteration %d/%d", current_iteration, total_iterations))
               }
+
+              write.csv(summary_table, paste0(input_params$out_path, "/summary_table.csv"))
+              
+              # Store results in reactive values
+              results$summary_table <- summary_table
+              results$current_output_path <- input_params$out_path
+              
+              return(summary_table)
             }
 
-            write.csv(summary_table, paste0(input_params$out_path, "/summary_table.csv"))
-            
-            # Store results in reactive values
-            results$summary_table <- summary_table
-            results$current_output_path <- input_params$out_path
-            
-            return(summary_table)
-          }
+            # Add updateProgressText function
+            updateProgressText <- function(text) {
+              html("status_message", paste0("Analysis in progress...<br>", text))
+            }
 
-          # Add updateProgressText function
-          updateProgressText <- function(text) {
-            html("status_message", paste0("Analysis in progress...<br>", text))
-          }
-
-          # Run the analysis with progress updates
-          slide_results <- optimizeSLIDE_with_progress(isolate(config()))
-          gc()
-          
-          cleanup_analysis()
-          shinyjs::removeClass(selector = "#status_message", class = "status-running")
-          shinyjs::addClass(selector = "#status_message", class = "status-complete")
-          
-          if (!should_cancel()) {
-            html("status_message", "Analysis completed successfully!")
-            showNotification("SLIDE analysis completed successfully!", type = "message")
-          }
-          
-        }, error = function(e) {
-          cleanup_analysis()
-          html("status_message", sprintf("Error in SLIDE analysis: %s", e$message))
-          showNotification(sprintf("Error in SLIDE analysis: %s", e$message), type = "error")
+            # Run the analysis with progress updates
+            slide_results <- optimizeSLIDE_with_progress(isolate(config()))
+            gc()
+            
+            cleanup_analysis()
+            shinyjs::removeClass(selector = "#status_message", class = "status-running")
+            shinyjs::addClass(selector = "#status_message", class = "status-complete")
+            
+            if (!should_cancel()) {
+              html("status_message", "Analysis completed successfully!")
+              showNotification("SLIDE analysis completed successfully!", type = "message")
+            }
+            
+          }, error = function(e) {
+            cleanup_analysis()
+            html("status_message", sprintf("Error in SLIDE analysis: %s", e$message))
+            showNotification(sprintf("Error in SLIDE analysis: %s", e$message), type = "error")
+          })
         })
+      }, error = function(e) {
+        cleanup_analysis()
+        showNotification(sprintf("Error saving configuration: %s", e$message), type = "error")
       })
     }
   })
@@ -855,20 +1014,23 @@ server <- function(input, output, session) {
     })
   })
 
-  # Add the load results observer
-  observeEvent(input$load_results, {
+  # Add observer for results path changes
+  observeEvent(input$results_path, {
     req(input$results_path)
+    if (input$results_path == "") return()
     
     tryCatch({
       # Validate directory exists
       if (!dir.exists(input$results_path)) {
-        stop("Directory does not exist")
+        showNotification("Directory does not exist", type = "warning")
+        return()
       }
       
       # Check for summary table
       summary_file <- file.path(input$results_path, "summary_table.csv")
       if (!file.exists(summary_file)) {
-        stop("No summary_table.csv found in the specified directory")
+        showNotification("No summary_table.csv found in the specified directory", type = "warning")
+        return()
       }
       
       # Load summary table
@@ -884,7 +1046,7 @@ server <- function(input, output, session) {
     }, error = function(e) {
       showNotification(sprintf("Error loading results: %s", e$message), type = "error")
     })
-  })
+  }, ignoreInit = TRUE)
 
   output$preprocessing_content <- renderUI({
     # Create a temporary HTML file from the Rmd
