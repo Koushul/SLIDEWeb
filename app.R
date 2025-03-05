@@ -375,103 +375,23 @@ ui <- page_navbar(
         tags$div(id = "status_message", class = "mt-2 text-muted small"),
         fileInput("config_upload", "Or Upload YAML Config", accept = ".yaml")
       ),
-      div(
-        class = "container-fluid p-3",
-        style = "height: calc(100vh - 56px); overflow-y: auto;",
-        card(
-          card_header("Load Results"),
-          tags$div(class = "path-input-truncate",
-            textInput("results_path", "Results Directory Path", value = "")
-          ),
-          helpText("Enter the path to an existing SLIDE results directory")
-        ),
-        uiOutput("results_cards"),
-        card(
-          full_screen = TRUE,
-          card_header("SLIDE Pipeline Overview"),
-          card_body(
-            p("The SLIDE pipeline consists of two main steps:"),
-            tags$ol(
-              tags$li("optimizeSLIDE: Calculate and select latent factors (LFs) for multiple input parameter combinations."),
-              tags$li("Review the output and choose optimal parameters (delta, lambda and f_size)."),
-              tags$li("SLIDEcv: Perform rigorous k-fold cross-validation with chosen parameters.")
-            ),
-            h4("Input Data Requirements:"),
-            tags$ul(
-              tags$li("Two CSV files are required:"),
-              tags$li(HTML("<strong>X file:</strong> Data matrix in sample by feature format (e.g., cell by gene for single cell transcriptomics, or region by protein for spatial proteomics)")),
-              tags$li(HTML("<strong>Y file:</strong> Response vector containing outcomes (e.g., disease severity, spatial regions, clonal expansion)")),
-              tags$li("Both files must have row names and column names"),
-              tags$li("For ordinal responses (more than two classes), ensure there are ordinal relationships between y values")
-            )
-          )
-        ),
-        card(
-          full_screen = TRUE,
-          card_header("Analysis Steps"),
-          card_body(
-            accordion(
-              open=FALSE,
-              accordion_panel(
-                "Step 1: Parameter Tuning",
-                open = FALSE,
-                p("Run optimizeSLIDE, which will:"),
-                tags$ul(
-                  tags$li("Calculate and select latent factors (LFs) for multiple input parameter combinations"),
-                  tags$li("Generate a summary table showing performance for each parameter combination"),
-                  tags$li("Create visualizations and correlation networks for the latent factors")
-                )
-              ),
-              accordion_panel(
-                "Step 2: Understanding Outputs",
-                open = FALSE,
-                p("After optimizeSLIDE completes, analyze the results in this order:"),
-                tags$ol(
-                  tags$li(
-                    strong("Evaluate Latent Factor Performance (ControlPerformancePlot.png)"),
-                    tags$ul(
-                      tags$li("Red line: True performance of significant latent factors"),
-                      tags$li("Blue density: Performance of knockoff marginal latent factors"),
-                      tags$li("Green density: Performance of true marginals with knockoff interactions")
-                    )
-                  ),
-                  tags$li(
-                    strong("Examine Top Features (plotSigGenes_marginals.png)"),
-                    tags$ul(
-                      tags$li("Shows top features in marginal significant latent factors"),
-                      tags$li("Top 10: Features by latent factor loading"),
-                      tags$li("Bottom 10: Features by univariate correlation/AUC with response")
-                    )
-                  )
-                )
-              ),
-              accordion_panel(
-                "Step 3: Run Cross-validation",
-                open = FALSE,
-                p("With your chosen parameters, run rigorous k-fold cross-validation:"),
-                tags$div(
-                  class = "well",
-                  tags$pre(
-                    tags$code(
-                      "SLIDE::SLIDEcv(yaml_path='path/to/yaml_params.yaml', nrep=20, k=10)"
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
+      # Replace the existing results section with the dynamic one
+      uiOutput("results_section")
     )
   )
 )
 
 server <- function(input, output, session) {
+  # Initialize all reactive values at the start of server
   config <- reactiveVal(NULL)
   results <- reactiveValues(
     summary_table = NULL,
     current_output_path = NULL
   )
+  
+  # Add reactive values for directory navigation
+  current_dir <- reactiveVal(NULL)
+  dir_contents <- reactiveVal(NULL)
   
   # Add reactive value to track analysis state
   analysis_running <- reactiveVal(FALSE)
@@ -879,8 +799,8 @@ server <- function(input, output, session) {
     req(results$summary_table)
     datatable(results$summary_table,
               options = list(
-                pageLength = 10,
-                scrollX = TRUE,
+                pageLength = 50,
+                scrollX = FALSE,
                 dom = 'Bfrtip',
                 buttons = c('copy', 'csv', 'excel')
               ),
@@ -1014,75 +934,142 @@ server <- function(input, output, session) {
     })
   })
 
-  # Add observer for results path changes
+  # Function to list directory contents
+  get_dir_contents <- function(path) {
+    if (!dir.exists(path)) return(NULL)
+    
+    # Get subdirectories
+    dirs <- list.dirs(path, full.names = FALSE, recursive = FALSE)
+    dirs <- dirs[dirs != ""]  # Remove empty strings
+    
+    # Create data frame with directory info
+    data.frame(
+      name = dirs,
+      type = "folder",
+      has_results = sapply(file.path(path, dirs), function(d) {
+        file.exists(file.path(d, "summary_table.csv"))
+      }),
+      path = file.path(path, dirs),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # Observer for results path changes
   observeEvent(input$results_path, {
     req(input$results_path)
     if (input$results_path == "") return()
     
-    tryCatch({
-      # Validate directory exists
-      if (!dir.exists(input$results_path)) {
-        showNotification("Directory does not exist", type = "warning")
-        return()
-      }
-      
-      # Check for summary table
-      summary_file <- file.path(input$results_path, "summary_table.csv")
-      if (!file.exists(summary_file)) {
-        showNotification("No summary_table.csv found in the specified directory", type = "warning")
-        return()
-      }
-      
-      # Load summary table
-      summary_table <- read.csv(summary_file)
-      
-      # Update reactive values
-      results$summary_table <- summary_table
-      results$current_output_path <- normalizePath(input$results_path, winslash = "/", mustWork = TRUE)
-      
-      # Show success message
-      showNotification("Results loaded successfully!", type = "message")
-      
-    }, error = function(e) {
-      showNotification(sprintf("Error loading results: %s", e$message), type = "error")
-    })
-  }, ignoreInit = TRUE)
-
-  output$preprocessing_content <- renderUI({
-    # Create a temporary HTML file from the Rmd
-    temp_html <- tempfile(fileext = ".html")
+    path <- normalizePath(input$results_path, winslash = "/")
+    current_dir(path)
     
-    # Get the path to the vignette file
-    vignette_path <- system.file("vignettes", "Preprocessing-and-Filtering.Rmd", package = "SLIDE")
-    if (file.exists(vignette_path)) {
-      rmarkdown::render(vignette_path,
-                       output_file = temp_html,
-                       quiet = TRUE)
-      
-      # Read the HTML content
-      html_content <- readLines(temp_html)
-      HTML(paste(html_content, collapse = "\n"))
-    } else {
-      HTML("<div class='alert alert-warning'>Preprocessing guide not found. Please make sure the SLIDE package is properly installed.</div>")
+    # Update directory contents
+    dir_contents(get_dir_contents(path))
+    
+    # Check for summary table
+    summary_file <- file.path(path, "summary_table.csv")
+    if (file.exists(summary_file)) {
+      tryCatch({
+        summary_table <- read.csv(summary_file)
+        results$summary_table <- summary_table
+        results$current_output_path <- path
+        showNotification("Results loaded successfully!", type = "message")
+      }, error = function(e) {
+        showNotification(sprintf("Error loading results: %s", e$message), type = "error")
+      })
     }
+  })
+
+  # Directory browser output
+  output$dir_browser <- renderDT({
+    req(dir_contents())
+    contents <- dir_contents()
+    
+    # Add parent directory if not at root
+    current_path <- current_dir()
+    parent_path <- dirname(current_path)
+    
+    if (current_path != parent_path) {
+      parent_row <- data.frame(
+        name = "..",
+        type = "parent",
+        has_results = FALSE,
+        path = parent_path,
+        stringsAsFactors = FALSE
+      )
+      contents <- rbind(parent_row, contents)
+    }
+    
+    # Create the interactive table
+    datatable(
+      contents,
+      selection = 'single',
+      options = list(
+        dom = 't',  # Only show table, no search/pagination
+        pageLength = -1,  # Show all rows
+        ordering = FALSE,  # Disable sorting
+        scrollY = "calc(100% - 1px)",  # Make table body scrollable
+        scroller = TRUE,  # Enable virtual scrolling
+        columnDefs = list(
+          list(
+            targets = 0,  # First column (name)
+            render = JS("
+              function(data, type, row) {
+                if (row[1] === 'folder') {
+                  return '<div class=\"d-flex align-items-center\"><i class=\"fas fa-folder me-2 text-warning\"></i>' + 
+                         '<span style=\"flex-grow: 1;\">' + data + '</span></div>';
+                } else {
+                  return '<div class=\"d-flex align-items-center\"><i class=\"fas fa-level-up-alt me-2 text-secondary\"></i>' + 
+                         '<span style=\"flex-grow: 1;\">' + data + '</span></div>';
+                }
+              }
+            ")
+          ),
+          list(targets = c(1, 3), visible = FALSE)  # Hide type and path columns
+        )
+      ),
+      colnames = c("Name", "Type", "Has Results", "Path"),
+      rownames = FALSE,
+      escape = FALSE,
+      class = 'compact hover'  # Add compact and hover classes
+    ) %>%
+      formatStyle(
+        'has_results',
+        target = 'row',
+        backgroundColor = styleEqual(c(TRUE), c('#d4edda'))
+      ) %>%
+      formatStyle(
+        'name',
+        cursor = 'pointer'
+      )
+  })
+
+  # Add observer to update input field when directory is selected
+  observeEvent(input$dir_browser_rows_selected, {
+    req(input$dir_browser_rows_selected)
+    contents <- dir_contents()
+    
+    # Add parent directory row if needed
+    current_path <- current_dir()
+    parent_path <- dirname(current_path)
+    if (current_path != parent_path) {
+      parent_row <- data.frame(
+        name = "..",
+        type = "parent",
+        has_results = FALSE,
+        path = parent_path,
+        stringsAsFactors = FALSE
+      )
+      contents <- rbind(parent_row, contents)
+    }
+    
+    # Get selected path and update input
+    selected_path <- contents$path[input$dir_browser_rows_selected]
+    updateTextInput(session, "results_path", value = selected_path)
   })
 
   output$results_cards <- renderUI({
     if (is.null(results$summary_table)) {
-      tagList(
-        card(
-          class = "opacity-50",
-          card_header("Summary Table"),
-          div(class = "card-body text-center text-muted",
-              "Load results to view summary table")
-        ),
-        card(
-          class = "opacity-50",
-          card_header("Plots"),
-          div(class = "card-body text-center text-muted",
-              "Select a row from the summary table to view analysis files")
-        )
-      )
+      return(NULL)  # Don't show anything if no results loaded
     } else {
       tagList(
         card(
@@ -1104,6 +1091,64 @@ server <- function(input, output, session) {
     } else {
       shinyjs::removeClass("run_slidecv", "enabled")
     }
+  })
+
+  # Move the UI definition inside the server function
+  output$load_results_ui <- renderUI({
+    div(
+      class = "row",
+      div(
+        class = "col-12",
+        card(
+          card_header(
+            div(
+              class = "d-flex justify-content-between align-items-center",
+              "Directory Browser",
+              if (!is.null(current_dir())) {
+                tags$small(
+                  class = "text-muted",
+                  tags$code(
+                    style = "word-break: break-all;",
+                    current_dir()
+                  )
+                )
+              }
+            )
+          ),
+          div(
+            class = "card-body p-3",
+            div(
+              class = "mb-3",
+              style = "display: flex; gap: 10px; align-items: center;",
+              div(
+                style = "flex-grow: 1; min-width: 0;",
+                tags$div(
+                  class = "path-input-truncate",
+                  style = "width: 100%;",
+                  textInput("results_path", "Enter or browse to a directory containing SLIDE results", 
+                          value = current_dir(),
+                          placeholder = "Enter or browse to a directory containing SLIDE results",
+                          width = '100%')
+                )
+              )
+            ),
+            div(
+              style = "height: 250px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px;",
+              DTOutput("dir_browser")
+            )
+          )
+        )
+      )
+    )
+  })
+
+  output$results_section <- renderUI({
+    div(
+      class = "container-fluid p-3",
+      style = "height: calc(100vh - 56px); overflow-y: auto;",
+      uiOutput("load_results_ui"),
+      uiOutput("results_cards")
+    )
   })
 }
 
