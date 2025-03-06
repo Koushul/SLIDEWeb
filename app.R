@@ -18,60 +18,7 @@ ui <- page_navbar(
   ),
   header = tags$head(
     tags$style(HTML("
-      .toggle-switch {
-        position: relative;
-        display: inline-block;
-        width: 46px;
-        height: 24px;
-      }
-      .toggle-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-      }
-      .toggle-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #4CAF50;
-        transition: .3s;
-        border-radius: 24px;
-        box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
-      }
-      .toggle-slider:before {
-        position: absolute;
-        content: '';
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: white;
-        transition: .3s;
-        border-radius: 50%;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.15);
-      }
-      input:checked + .toggle-slider {
-        background-color: #FA8072;
-      }
-      input:checked + .toggle-slider:before {
-        transform: translateX(22px);
-      }
-      .toggle-label {
-        margin: 0 8px;
-        font-weight: 400;
-        color: #555;
-        font-size: 0.9em;
-      }
-      .toggle-container {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 12px;
-        padding: 8px 0;
-      }
+      /* Remove toggle switch styles */
       
       /* Path input field styling */
       .path-input input {
@@ -79,21 +26,42 @@ ui <- page_navbar(
         font-family: monospace;
       }
       
-      .path-input.overflow input {
-        position: relative;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        padding-right: 20px;
+      /* Input group styling */
+      .input-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      
+      .input-group .form-control {
+        flex: 1;
+      }
+      
+      .input-group .btn-upload {
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+      
+      .input-group .btn-upload:hover {
+        background-color: #45a049;
+        transform: translateY(-2px);
+      }
+      
+      .input-group .btn-upload i {
+        margin-right: 4px;
       }
       
       /* Validation icons */
       .validation-icon {
-        position: absolute;
-        right: 10px;
-        top: 50%;
-        transform: translateY(-50%);
-        z-index: 2;
+        display: inline-block;
+        margin-left: 4px;
+        vertical-align: middle;
       }
       .validation-icon.valid {
         color: #28a745;
@@ -107,19 +75,24 @@ ui <- page_navbar(
         position: relative;
         width: 100%;
       }
+
+      /* Label with validation icon */
+      .label-with-validation {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-bottom: 4px;
+      }
       
-      .path-input.overflow input:focus,
-      .path-input.overflow input:hover {
-        overflow: visible;
-        white-space: normal;
-        word-wrap: break-word;
-        height: auto;
-        position: absolute;
-        background: white;
-        z-index: 1000;
-        width: 100%;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-radius: 4px;
+      /* Shape info text */
+      .shape-info {
+        margin-top: 2px;
+        margin-bottom: 8px;
+      }
+      
+      /* Adjust spacing for file inputs */
+      .shiny-input-container {
+        margin-bottom: 8px;
       }
       
       /* Path input with truncation */
@@ -362,39 +335,41 @@ ui <- page_navbar(
     layout_sidebar(
       sidebar = sidebar(
         width = 350,
-        div(class = "toggle-container",
-          span(class = "toggle-label", "Path"),
-          tags$label(class = "toggle-switch",
-            tags$input(type = "checkbox", id = "input_type"),
-            tags$span(class = "toggle-slider")
-          ),
-          span(class = "toggle-label", "Upload")
-        ),
-        conditionalPanel(
-          condition = "input.input_type === true",
-          fileInput("x_file", "Select X data file (CSV)", accept = ".csv")
-        ),
-        conditionalPanel(
-          condition = "input.input_type === false",
-          tags$div(class = "path-input-truncate",
-            div(class = "path-input-container",
-              textInput("x_path", "X data file path (CSV)", value = ""),
-              tags$i(id = "x_path_icon", class = "fas validation-icon")
+        div(class = "input-group",
+          div(style = "flex: 1;",
+            tags$div(class = "path-input-truncate",
+              div(class = "path-input-container",
+                div(class = "label-with-validation",
+                  "X data file path (CSV)",
+                  tags$i(id = "x_path_icon", class = "fas validation-icon")
+                ),
+                textInput("x_path", NULL, value = "")
+              )
             )
+          ),
+          fileInput("x_file", NULL, accept = ".csv", 
+            buttonLabel = list(icon("upload"), "Upload"),
+            width = "auto"
           )
         ),
-        uiOutput("x_shape_info"),
-        conditionalPanel(
-          condition = "input.input_type === true",
-          fileInput("y_file", "Select Y data file (CSV)", accept = ".csv")
+        div(class = "shape-info",
+          uiOutput("x_shape_info")
         ),
-        conditionalPanel(
-          condition = "input.input_type === false",
-          tags$div(class = "path-input-truncate",
-            div(class = "path-input-container",
-              textInput("y_path", "Y data file path (CSV)", value = ""),
-              tags$i(id = "y_path_icon", class = "fas validation-icon")
+        div(class = "input-group",
+          div(style = "flex: 1;",
+            tags$div(class = "path-input-truncate",
+              div(class = "path-input-container",
+                div(class = "label-with-validation",
+                  "Y data file path (CSV)",
+                  tags$i(id = "y_path_icon", class = "fas validation-icon")
+                ),
+                textInput("y_path", NULL, value = "")
+              )
             )
+          ),
+          fileInput("y_file", NULL, accept = ".csv", 
+            buttonLabel = list(icon("upload"), "Upload"),
+            width = "auto"
           )
         ),
         tags$div(class = "path-input-truncate",
@@ -421,6 +396,11 @@ ui <- page_navbar(
               "Spec",
               tags$small(class = "text-muted d-block mb-2", "Controls number of significant latent factors. Aim for 5-12 LFs. Default: 0.1"),
               numericInput("spec", NULL, value = 0.1, min = 0, max = 1, step = 0.01)
+            ),
+            div(
+              "Threshold FDR",
+              tags$small(class = "text-muted d-block mb-2", "False discovery rate threshold for feature selection. Default: 0.2"),
+              numericInput("thresh_fdr", NULL, value = 0.2, min = 0, max = 1, step = 0.01)
             ),
             div(
               "Y Factor",
@@ -633,6 +613,7 @@ server <- function(input, output, session) {
       delta = as.numeric(strsplit(input$delta, ",")[[1]]),
       lambda = as.numeric(strsplit(input$lambda, ",")[[1]]),
       spec = input$spec,
+      thresh_fdr = input$thresh_fdr,
       y_factor = input$y_factor,
       y_levels = as.numeric(strsplit(input$y_levels, ",")[[1]]),
       eval_type = input$eval_type,
@@ -805,7 +786,7 @@ server <- function(input, output, session) {
                   progress_pct <- 0.2 + (0.8 * current_iteration / total_iterations)
                   
                   incProgress(progress_pct / total_iterations, 
-                             detail = sprintf("Processing delta=%.3f, lambda=%.3f (%d/%d)", 
+                             detail = sprintf("🏃‍♂️️ delta=%.3f, lambda=%.3f (%d/%d)", 
                                             d, l, current_iteration, total_iterations))
 
                   loop_outpath = paste0(input_params$out_path, '/', d, '_', l, '_', 'out/')
@@ -848,9 +829,18 @@ server <- function(input, output, session) {
                                                lf_path = NULL, loop_outpath)
 
                   updateProgressText("Running SLIDE analysis...")
-                  SLIDE_res <- SLIDE::runSLIDE(y, y_path = NULL, z_path = NULL, z_matrix, 
-                                             all_latent_factors, lf_path = NULL, niter = SLIDE_iter, 
-                                             spec = spec, do_interacts = do_interacts)
+                  SLIDE_res <- tryCatch({
+                    SLIDE::runSLIDE(y, y_path = NULL, z_path = NULL, z_matrix, 
+                                  all_latent_factors, lf_path = NULL, niter = SLIDE_iter, 
+                                  spec = spec, do_interacts = do_interacts)
+                  }, error = function(e) {
+                    updateProgressText("Error running SLIDE analysis, skipping...")
+                    return(NULL)
+                  })
+                  
+                  if (is.null(SLIDE_res)) {
+                    next
+                  }
                   
                   saveRDS(SLIDE_res, paste0(loop_outpath, 'SLIDE_LFs.rds'))
 
@@ -1334,8 +1324,6 @@ server <- function(input, output, session) {
 
   # Update X file validation status
   observe({
-    req(input$input_type == FALSE)  # Only run when in path mode
-    
     # Validate X path
     if (!is.null(input$x_path) && input$x_path != "") {
       tryCatch({
@@ -1355,6 +1343,17 @@ server <- function(input, output, session) {
         shinyjs::addClass(id = "x_path_icon", class = "fa-times invalid")
         x_file_valid(FALSE)
       })
+    } else if (!is.null(input$x_file)) {
+      tryCatch({
+        x <- as.matrix(utils::read.csv(input$x_file$datapath, row.names = 1, check.names = F))
+        shinyjs::removeClass(id = "x_path_icon", class = "fa-times invalid")
+        shinyjs::addClass(id = "x_path_icon", class = "fa-check valid")
+        x_file_valid(TRUE)
+      }, error = function(e) {
+        shinyjs::removeClass(id = "x_path_icon", class = "fa-check valid")
+        shinyjs::addClass(id = "x_path_icon", class = "fa-times invalid")
+        x_file_valid(FALSE)
+      })
     } else {
       shinyjs::removeClass(id = "x_path_icon", class = "fa-check valid")
       shinyjs::removeClass(id = "x_path_icon", class = "fa-times invalid")
@@ -1364,8 +1363,6 @@ server <- function(input, output, session) {
   
   # Update Y file validation status
   observe({
-    req(input$input_type == FALSE)  # Only run when in path mode
-    
     # Validate Y path
     if (!is.null(input$y_path) && input$y_path != "") {
       tryCatch({
@@ -1385,6 +1382,17 @@ server <- function(input, output, session) {
         shinyjs::addClass(id = "y_path_icon", class = "fa-times invalid")
         y_file_valid(FALSE)
       })
+    } else if (!is.null(input$y_file)) {
+      tryCatch({
+        y <- as.matrix(utils::read.csv(input$y_file$datapath, row.names = 1))
+        shinyjs::removeClass(id = "y_path_icon", class = "fa-times invalid")
+        shinyjs::addClass(id = "y_path_icon", class = "fa-check valid")
+        y_file_valid(TRUE)
+      }, error = function(e) {
+        shinyjs::removeClass(id = "y_path_icon", class = "fa-check valid")
+        shinyjs::addClass(id = "y_path_icon", class = "fa-times invalid")
+        y_file_valid(FALSE)
+      })
     } else {
       shinyjs::removeClass(id = "y_path_icon", class = "fa-check valid")
       shinyjs::removeClass(id = "y_path_icon", class = "fa-times invalid")
@@ -1392,30 +1400,16 @@ server <- function(input, output, session) {
     }
   })
 
-  # Add validation for file upload mode
-  observe({
-    req(input$input_type == TRUE)  # Only run when in upload mode
-    
-    x_file_valid(FALSE)
-    y_file_valid(FALSE)
-    
-    if (!is.null(input$x_file)) {
-      tryCatch({
-        x <- as.matrix(utils::read.csv(input$x_file$datapath, row.names = 1, check.names = F))
-        x_file_valid(TRUE)
-      }, error = function(e) {
-        x_file_valid(FALSE)
-      })
-    }
-    
-    if (!is.null(input$y_file)) {
-      tryCatch({
-        y <- as.matrix(utils::read.csv(input$y_file$datapath, row.names = 1))
-        y_file_valid(TRUE)
-      }, error = function(e) {
-        y_file_valid(FALSE)
-      })
-    }
+  # Update x_path when file is uploaded
+  observeEvent(input$x_file, {
+    req(input$x_file)
+    updateTextInput(session, "x_path", value = input$x_file$datapath)
+  })
+
+  # Update y_path when file is uploaded
+  observeEvent(input$y_file, {
+    req(input$y_file)
+    updateTextInput(session, "y_path", value = input$y_file$datapath)
   })
 }
 
