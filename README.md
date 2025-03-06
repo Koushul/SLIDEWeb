@@ -1,7 +1,7 @@
 # SLIDEWeb
 Shiny WebApp for SLIDE
 
-
+![SLIDE Web Interface](app.png)
 
 ## Setup on CRC clusters
 git clone https://github.com/Koushul/SLIDEWeb.git
@@ -29,4 +29,4 @@ devtools::install_github("jishnu-lab/SLIDE")
 ```
 
 # Select `R Shiny` under Interactive Apps on ondemand
-Make sure to set the App Directory path
+Make sure to set the App Directory path to the folder where the app.R is
