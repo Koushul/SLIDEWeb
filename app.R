@@ -6,6 +6,7 @@ library(SLIDE)
 library(DT)
 library(plotly)
 library(rmarkdown)
+library(dplyr)
 
 ui <- page_navbar(
   theme = bs_theme(version = 5, bootswatch = "minty"),
@@ -493,6 +494,37 @@ server <- function(input, output, session) {
   x_file_valid <- reactiveVal(FALSE)
   y_file_valid <- reactiveVal(FALSE)
 
+  # Create a reactive value to store the temp directory path
+  temp_dir <- reactiveVal(NULL)
+  
+  # Function to clean up old temp files
+  cleanup_temp_files <- function() {
+    # Clean up files older than 1 hour
+    temp_base <- "www/temp"
+    if (dir.exists(temp_base)) {
+      files <- list.files(temp_base, full.names = TRUE)
+      for (f in files) {
+        if (difftime(Sys.time(), file.info(f)$mtime, units="hours") > 1) {
+          unlink(f)
+        }
+      }
+    }
+  }
+
+  # Create temp directory if it doesn't exist
+  observe({
+    if (is.null(temp_dir())) {
+      temp_base <- "www/temp"
+      if (!dir.exists(temp_base)) {
+        dir.create(temp_base, recursive = TRUE, showWarnings = FALSE)
+      }
+      temp_dir(temp_base)
+      
+      # Clean up old temp files
+      cleanup_temp_files()
+    }
+  })
+
   # Initialize JavaScript functions
   js <- list(
     enableButton = function(buttonId) {
@@ -958,7 +990,7 @@ server <- function(input, output, session) {
 
   # Add observer for selected row and output for folder contents
   output$selected_folder_contents <- renderUI({
-    req(results$current_output_path, results$summary_table, input$summary_table_rows_selected)
+    req(results$current_output_path, results$summary_table, input$summary_table_rows_selected, temp_dir())
     
     # Get selected row data
     selected_row <- results$summary_table[input$summary_table_rows_selected, ]
@@ -976,10 +1008,6 @@ server <- function(input, output, session) {
     # Normalize path after confirming it exists
     folder_path <- normalizePath(folder_path, winslash = "/", mustWork = TRUE)
     
-    # Register the directory for static file serving
-    resource_name <- paste0("plots_", gsub("[^a-zA-Z0-9]", "_", folder_name))
-    shiny::addResourcePath(resource_name, folder_path)
-    
     # Define the plots we want to display
     plot_files <- c(
       "ControlPerformancePlot.png",
@@ -987,12 +1015,23 @@ server <- function(input, output, session) {
       "plotSigGenes_marginals.png"
     )
     
-    # Check which plots exist
+    # Check which plots exist and copy them to temp directory
     existing_plots <- plot_files[file.exists(file.path(folder_path, plot_files))]
     
     if (length(existing_plots) == 0) {
       return(h4("No visualization plots found in the selected analysis folder"))
     }
+    
+    # Copy files to temp directory with unique names
+    temp_files <- sapply(existing_plots, function(plot_file) {
+      temp_name <- paste0(basename(results$current_output_path), "_",
+                         selected_row$delta, "_",
+                         selected_row$lambda, "_",
+                         plot_file)
+      temp_path <- file.path(temp_dir(), temp_name)
+      file.copy(file.path(folder_path, plot_file), temp_path, overwrite = TRUE)
+      return(temp_name)
+    })
     
     div(
       h4(sprintf("Analysis Results for delta=%.3f, lambda=%.3f", 
@@ -1004,8 +1043,10 @@ server <- function(input, output, session) {
         div(
           class = "d-flex flex-row justify-content-between align-items-start gap-3",
           style = "width: 100%;",
-          lapply(existing_plots, function(plot_file) {
-            image_url <- paste0("/", resource_name, "/", plot_file)
+          lapply(seq_along(existing_plots), function(i) {
+            plot_file <- existing_plots[i]
+            temp_file <- temp_files[i]
+            image_url <- file.path("temp", temp_file)
             div(
               class = "text-center",
               style = "flex: 1; min-width: 0;",
@@ -1027,6 +1068,11 @@ server <- function(input, output, session) {
                 style = "width: 100%; max-height: 400px; object-fit: contain;",
                 class = "border rounded"
               ),
+              # tags$div(
+              #   class = "mt-2",
+              #   style = "font-family: monospace; font-size: 0.8em; color: #666; word-break: break-all;",
+              #   file.path(folder_path, plot_file)
+              # ),
               onclick = sprintf("window.open('%s', '_blank')", image_url)
             )
           })
