@@ -977,7 +977,7 @@ server <- function(input, output, session) {
     req(results$summary_table)
     datatable(results$summary_table,
               options = list(
-                pageLength = 50,
+                pageLength = 100,
                 scrollX = FALSE,
                 dom = 'Bfrtip',
                 buttons = c('copy', 'csv', 'excel')
@@ -1150,9 +1150,6 @@ server <- function(input, output, session) {
     data.frame(
       name = dirs,
       type = "folder",
-      has_results = sapply(file.path(path, dirs), function(d) {
-        file.exists(file.path(d, "summary_table.csv"))
-      }),
       path = file.path(path, dirs),
       stringsAsFactors = FALSE
     )
@@ -1196,7 +1193,6 @@ server <- function(input, output, session) {
       parent_row <- data.frame(
         name = "..",
         type = "parent",
-        has_results = FALSE,
         path = parent_path,
         stringsAsFactors = FALSE
       )
@@ -1228,19 +1224,14 @@ server <- function(input, output, session) {
               }
             ")
           ),
-          list(targets = c(1, 3), visible = FALSE)  # Hide type and path columns
+          list(targets = c(1, 2), visible = FALSE)  # Hide type and path columns
         )
       ),
-      colnames = c("Name", "Type", "Has Results", "Path"),
+      colnames = c("Name", "Type", "Path"),
       rownames = FALSE,
       escape = FALSE,
       class = 'compact hover'  # Add compact and hover classes
     ) %>%
-      formatStyle(
-        'has_results',
-        target = 'row',
-        backgroundColor = styleEqual(c(TRUE), c('#d4edda'))
-      ) %>%
       formatStyle(
         'name',
         cursor = 'pointer'
@@ -1259,7 +1250,6 @@ server <- function(input, output, session) {
       parent_row <- data.frame(
         name = "..",
         type = "parent",
-        has_results = FALSE,
         path = parent_path,
         stringsAsFactors = FALSE
       )
@@ -1350,8 +1340,85 @@ server <- function(input, output, session) {
     div(
       class = "container-fluid p-3",
       style = "height: calc(100vh - 56px); overflow-y: auto;",
-      uiOutput("load_results_ui"),
-      uiOutput("results_cards")
+      div(
+        class = "row",
+        # Directory Browser Card
+        div(
+          class = "col-4",
+          card(
+            style = "height: 600px;",
+            card_header(
+              div(
+                class = "d-flex justify-content-between align-items-center",
+                "Directory Browser",
+                if (!is.null(current_dir())) {
+                  tags$small(
+                    class = "text-muted",
+                    tags$code(
+                      style = "word-break: break-all;",
+                      current_dir()
+                    )
+                  )
+                }
+              )
+            ),
+            div(
+              class = "card-body p-3",
+              style = "height: calc(100% - 56px); display: flex; flex-direction: column;",
+              div(
+                class = "mb-3",
+                style = "flex-shrink: 0;",
+                div(
+                  style = "display: flex; gap: 10px; align-items: center;",
+                  div(
+                    style = "flex-grow: 1; min-width: 0;",
+                    tags$div(
+                      class = "path-input-truncate",
+                      style = "width: 100%;",
+                      textInput("results_path", "Enter or browse to a directory containing SLIDE results", 
+                              value = current_dir(),
+                              placeholder = "Enter or browse to a directory containing SLIDE results",
+                              width = '100%')
+                    )
+                  )
+                )
+              ),
+              div(
+                style = "flex-grow: 1; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px;",
+                DTOutput("dir_browser")
+              )
+            )
+          )
+        ),
+        # Summary Table Card
+        div(
+          class = "col-8",
+          if (!is.null(results$summary_table)) {
+            card(
+              style = "height: 600px;",
+              card_header("Summary Table"),
+              div(
+                class = "card-body p-3",
+                style = "height: calc(100% - 56px); overflow-y: auto;",
+                DTOutput("summary_table")
+              )
+            )
+          }
+        )
+      ),
+      # Plots Card (Full Width)
+      if (!is.null(results$summary_table)) {
+        div(
+          class = "row mt-3",
+          div(
+            class = "col-12",
+            card(
+              card_header("Plots"),
+              uiOutput("selected_folder_contents")
+            )
+          )
+        )
+      }
     )
   })
 
