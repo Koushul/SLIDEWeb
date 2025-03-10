@@ -685,6 +685,12 @@ server <- function(input, output, session) {
       do_interacts = input$do_interacts
     )
     
+    # Create output directory if it doesn't exist and normalize path
+    if (!dir.exists(config_list$out_path)) {
+      dir.create(config_list$out_path, recursive = TRUE, showWarnings = FALSE)
+    }
+    config_list$out_path <- normalizePath(config_list$out_path, winslash = "/", mustWork = TRUE)
+    
     return(config_list)
   })
   
@@ -719,7 +725,7 @@ server <- function(input, output, session) {
   observeEvent(input$save_yaml, {
     tryCatch({
       yaml_config <- isolate(create_yaml_config())
-      yaml_file <- file.path(isolate(input$out_path), "yaml_params.yaml")
+      yaml_file <- file.path(yaml_config$out_path, "yaml_params.yaml")
       dir.create(dirname(yaml_file), showWarnings = FALSE, recursive = TRUE)
       yaml::write_yaml(yaml_config, yaml_file)
       config(yaml_config)
@@ -784,7 +790,7 @@ server <- function(input, output, session) {
           return()
         }
         
-        yaml_file <- file.path(isolate(input$out_path), "yaml_params.yaml")
+        yaml_file <- file.path(yaml_config$out_path, "yaml_params.yaml")
         dir.create(dirname(yaml_file), showWarnings = FALSE, recursive = TRUE)
         yaml::write_yaml(yaml_config, yaml_file)
         config(yaml_config)
@@ -1440,7 +1446,7 @@ Rscript %s/run_slide.R "%s"
       
       # Check if sbatch is available
       sbatch_available <- tryCatch({
-        system2("which", "sbatch", stdout = TRUE, stderr = FALSE)
+        system2("which", "sbatch", stdout = TRUE, stderr = TRUE)
         TRUE
       }, error = function(e) {
         FALSE
