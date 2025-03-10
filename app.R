@@ -1342,10 +1342,10 @@ server <- function(input, output, session) {
     }
 
     # Create logs directory if it doesn't exist
-    logs_dir <- file.path(jobs_dir, "logs")
-    if (!dir.exists(logs_dir)) {
-      dir.create(logs_dir, recursive = TRUE)
-    }
+    # logs_dir <- file.path(jobs_dir, "logs")
+    # if (!dir.exists(logs_dir)) {
+    #   dir.create(logs_dir, recursive = TRUE)
+    # }
 
     # Create job script with unique name based on parameters
     job_name <- sprintf("slide_cv_d%.3f_l%.3f", selected_row$delta, selected_row$lambda)
@@ -1368,7 +1368,7 @@ module load gcc/12.2.0
 module load r/4.4.0
 
 Rscript %s/run_slide.R "%s"
-', job_name, file.path("logs", paste0(job_name, ".out")), getwd(), yaml_file_norm)
+', job_name, file.path(paste0(job_name, ".out")), getwd(), yaml_file_norm)
 
     # Update script_details with the new values
     script_details$content <- submit_script
