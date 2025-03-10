@@ -170,7 +170,7 @@ ui <- page_navbar(
       
       /* Run SLIDEcv button */
       .btn-slidecv {
-        background-color: #FA8072 !important;
+        background-color: #619CFF !important;
         border: none !important;
         color: white !important;
         opacity: 0.5;
@@ -230,6 +230,22 @@ ui <- page_navbar(
         height: 100%;
         border-radius: 0.25rem;
         transition: width 0.6s ease;
+      }
+
+      /* Submit job button */
+      .btn-submit-job {
+        background-color: #FFA500 !important;
+        border: none !important;
+        color: white !important;
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .btn-submit-job.enabled {
+        opacity: 1;
+        cursor: pointer;
+      }
+      .btn-submit-job.enabled:hover {
+        filter: brightness(0.85);
       }
     ")),
     tags$script(HTML("
@@ -460,6 +476,12 @@ ui <- page_navbar(
             class = "btn-slidecv w-100"
           )
         ),
+        div(
+          style = "margin-top: 10px;",
+          actionButton("submit_job", "Submit SLIDEcv Job", 
+            class = "btn-submit-job w-100"
+          )
+        ),
         tags$div(id = "status_message", class = "mt-2 text-muted small"),
         fileInput("config_upload", "Or Upload YAML Config", accept = ".yaml")
       ),
@@ -496,6 +518,13 @@ server <- function(input, output, session) {
 
   # Create a reactive value to store the temp directory path
   temp_dir <- reactiveVal(NULL)
+  
+  # Add reactive value to store script details
+  script_details <- reactiveValues(
+    content = NULL,
+    path = NULL,
+    name = NULL
+  )
   
   # Function to clean up old temp files
   cleanup_temp_files <- function() {
@@ -1068,11 +1097,6 @@ server <- function(input, output, session) {
                 style = "width: 100%; max-height: 400px; object-fit: contain;",
                 class = "border rounded"
               ),
-              # tags$div(
-              #   class = "mt-2",
-              #   style = "font-family: monospace; font-size: 0.8em; color: #666; word-break: break-all;",
-              #   file.path(folder_path, plot_file)
-              # ),
               onclick = sprintf("window.open('%s', '_blank')", image_url)
             )
           })
@@ -1111,7 +1135,7 @@ server <- function(input, output, session) {
         writeLines(script_content, temp_script)
         
         # Run the script in a separate R process
-        system2("Rscript", temp_script, wait = TRUE)
+        system("Rscript", temp_script, wait = TRUE)
         
         # Check if results file was created
         results_file <- file.path(results$current_output_path, "slidecv_results.rds")
@@ -1282,9 +1306,180 @@ server <- function(input, output, session) {
   observe({
     if (!is.null(input$summary_table_rows_selected)) {
       shinyjs::addClass("run_slidecv", "enabled")
+      shinyjs::addClass("submit_job", "enabled")
     } else {
       shinyjs::removeClass("run_slidecv", "enabled")
+      shinyjs::removeClass("submit_job", "enabled")
     }
+  })
+
+  # Add observer for job submission
+  observeEvent(input$submit_job, {
+    req(results$current_output_path, results$summary_table, input$summary_table_rows_selected)
+    
+    # Get selected row data and folder path
+    selected_row <- results$summary_table[input$summary_table_rows_selected, ]
+    
+    # Create folder name based on delta and lambda values
+    folder_name <- paste0(selected_row$delta, "_", selected_row$lambda, "_out")
+    yaml_file <- file.path(results$current_output_path, folder_name, "yaml_params.yaml")
+    
+    if (!file.exists(yaml_file)) {
+      showNotification("YAML configuration file not found in results directory", type = "error")
+      return()
+    }
+
+    # Create jobs directory if it doesn't exist
+    jobs_dir <- file.path(results$current_output_path, "jobs")
+    if (!dir.exists(jobs_dir)) {
+      dir.create(jobs_dir, recursive = TRUE)
+    }
+
+    # Create logs directory if it doesn't exist
+    logs_dir <- file.path(jobs_dir, "logs")
+    if (!dir.exists(logs_dir)) {
+      dir.create(logs_dir, recursive = TRUE)
+    }
+
+    # Create job script with unique name based on parameters
+    job_name <- sprintf("slide_cv_d%.3f_l%.3f", selected_row$delta, selected_row$lambda)
+    job_script <- file.path(jobs_dir, paste0(job_name, ".sh"))
+    
+    # Normalize path for display
+    yaml_file_norm <- normalizePath(yaml_file, winslash = "/", mustWork = TRUE)
+    
+    # Create the submit script content
+    submit_script <- sprintf('#!/bin/bash
+#SBATCH --partition=htc
+#SBATCH --job-name=%s
+#SBATCH --output=%s
+#SBATCH --ntasks=1                   
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=16G                   
+#SBATCH --time=3-00:00:00               
+
+module load gcc/12.2.0
+module load r/4.4.0
+
+Rscript %s/run_slide.R "%s"
+', job_name, file.path("logs", paste0(job_name, ".out")), getwd(), yaml_file_norm)
+
+    # Update script_details with the new values
+    script_details$content <- submit_script
+    script_details$path <- job_script
+    script_details$name <- job_name
+
+    yaml_loaded <- yaml::yaml.load_file(yaml_file)
+
+    # Show preview modal with editable script content
+    showModal(modalDialog(
+      title = "Job Script Preview",
+      tags$div(
+        tags$p("Edit the job script before submission:"),
+        textAreaInput(
+          "script_editor",
+          label = NULL,
+          value = submit_script,
+          rows = 15,
+          resize = "vertical",
+          width = "100%",
+          placeholder = "Edit job script here...",
+        ),
+        tags$style(HTML("
+          #script_editor {
+            font-family: monospace;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+          }
+        ")),
+        tags$p(sprintf("Script will be saved to: %s", job_script)),
+        tags$div(
+          class = "alert alert-info",
+          icon("info-circle"), 
+          tags$strong("YAML Configuration:"),
+          tags$div(
+            style = "margin-top: 8px;",
+            tags$pre(
+              style = "margin-bottom: 0; white-space: pre-wrap;",
+              sprintf("Input data (X): %s\nOutput data (Y): %s\nResults path: %s", 
+                      yaml_loaded$x_path,
+                      yaml_loaded$y_path,
+                      yaml_loaded$out_path)
+            )
+          )
+        )
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_submit", "Create and Submit", class = "btn-success")
+      ),
+      size = "l",
+      easyClose = TRUE
+    ))
+  })
+  
+  # Update script_details when the script editor content changes
+  observeEvent(input$script_editor, {
+    if (!is.null(input$script_editor)) {
+      script_details$content <- input$script_editor
+    }
+  })
+  
+  # Handle confirmation of job submission
+  observeEvent(input$confirm_submit, {
+    # Close the modal
+    removeModal()
+    
+    # Try to write the job script with the edited content
+    tryCatch({
+      writeLines(script_details$content, script_details$path)
+      
+      # Make the script executable
+      Sys.chmod(script_details$path, mode = "0755")
+      
+      # Check if sbatch is available
+      sbatch_available <- tryCatch({
+        system2("which", "sbatch", stdout = TRUE, stderr = FALSE)
+        TRUE
+      }, error = function(e) {
+        FALSE
+      })
+      
+      if (sbatch_available) {
+        # Submit the job using sbatch
+        system_result <- tryCatch({
+          system2("sbatch", script_details$path, stdout = TRUE, stderr = TRUE)
+        }, error = function(e) {
+          return(paste("Error executing sbatch:", e$message))
+        })
+        
+        if (length(system_result) > 0 && grepl("^Submitted batch job", system_result[1])) {
+          job_id <- sub("^Submitted batch job ", "", system_result[1])
+          showNotification(
+            sprintf("Job submitted successfully (ID: %s)", job_id),
+            type = "message"
+          )
+        } else {
+          showNotification(
+            sprintf("Job script created but couldn't submit: %s", 
+                    paste(system_result, collapse = "\n")),
+            type = "warning"
+          )
+        }
+      } else {
+        showNotification(
+          sprintf("Job script created at %s, but 'sbatch' command not available. Submit manually.", 
+                  script_details$path),
+          type = "warning"
+        )
+      }
+    }, error = function(e) {
+      showNotification(
+        sprintf("Error creating job script: %s", e$message),
+        type = "error"
+      )
+    })
   })
 
   # Move the UI definition inside the server function

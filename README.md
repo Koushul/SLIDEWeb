@@ -1,7 +1,7 @@
 # SLIDEWeb
 Shiny WebApp for SLIDE
 
-![SLIDE Web Interface](app.png)
+![SLIDE Web Interface](preview.png)
 
 ## Setup on CRC clusters
 git clone https://github.com/Koushul/SLIDEWeb.git
