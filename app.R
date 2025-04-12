@@ -420,6 +420,11 @@ ui <- page_navbar(
               numericInput("thresh_fdr", NULL, value = 0.2, min = 0, max = 1, step = 0.01)
             ),
             div(
+              "Knockoff FDR",
+              tags$small(class = "text-muted d-block mb-2", "False discovery rate threshold for knockoff procedure. Default: 0.1"),
+              numericInput("fdr", NULL, value = 0.1, min = 0, max = 1, step = 0.01)
+            ),
+            div(
               "Y Factor",
               tags$small(class = "text-muted d-block mb-2", "Set TRUE if Y is binary, FALSE otherwise"),
               checkboxInput("y_factor", NULL, value = TRUE)
@@ -675,6 +680,7 @@ server <- function(input, output, session) {
       lambda = as.numeric(strsplit(input$lambda, ",")[[1]]),
       spec = input$spec,
       thresh_fdr = input$thresh_fdr,
+      fdr = input$fdr,
       y_factor = input$y_factor,
       y_levels = as.numeric(strsplit(input$y_levels, ",")[[1]]),
       eval_type = input$eval_type,
@@ -829,6 +835,7 @@ server <- function(input, output, session) {
               lambda = if(is.null(input_params$lambda)) c(0.5, 1.0) else input_params$lambda
               alpha_level = if(is.null(input_params$alpha)) 0.05 else input_params$alpha
               thresh_fdr = if(is.null(input_params$thresh_fdr)) 0.2 else input_params$thresh_fdr
+              fdr = if(is.null(input_params$fdr)) 0.1 else input_params$fdr
               spec = if(is.null(input_params$spec)) 0.1 else input_params$spec
               do_interacts = if(is.null(input_params$do_interacts)) TRUE else input_params$do_interacts
               SLIDE_iter = if(is.null(input_params$SLIDE_iter)) 1000 else input_params$SLIDE_iter
@@ -892,14 +899,31 @@ server <- function(input, output, session) {
                   saveRDS(all_latent_factors, paste0(loop_outpath, 'AllLatentFactors.rds'))
                   
                   updateProgressText("Calculating Z matrix...")
-                  z_matrix <- SLIDE::calcZMatrix(x_std, all_latent_factors, x_path = NULL, 
-                                               lf_path = NULL, loop_outpath)
+                  z_matrix <- tryCatch({
+                    SLIDE::calcZMatrix(x_std, all_latent_factors, x_path = NULL,
+                                     lf_path = NULL, loop_outpath)
+                  }, error = function(e) {
+                    updateProgressText("Error calculating Z matrix, skipping...")
+                    return(NULL)
+                  })
+                  
+                  if (is.null(z_matrix)) {
+                    next
+                  }
 
                   updateProgressText("Running SLIDE analysis...")
                   SLIDE_res <- tryCatch({
-                    SLIDE::runSLIDE(y, y_path = NULL, z_path = NULL, z_matrix, 
-                                  all_latent_factors, lf_path = NULL, niter = SLIDE_iter, 
-                                  spec = spec, do_interacts = do_interacts)
+                    SLIDE::runSLIDE(
+                      y, 
+                      y_path = NULL, 
+                      z_path = NULL, z_matrix, 
+                      all_latent_factors, 
+                      lf_path = NULL, 
+                      niter = SLIDE_iter, 
+                      spec = spec, 
+                      fdr = fdr,
+                      do_interacts = do_interacts
+                    )
                   }, error = function(e) {
                     updateProgressText("Error running SLIDE analysis, skipping...")
                     return(NULL)
