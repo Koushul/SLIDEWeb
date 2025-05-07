@@ -392,6 +392,10 @@ ui <- page_navbar(
         tags$div(class = "path-input-truncate",
           textInput("out_path", "Output Directory", value = "slide_results")
         ),
+        div(
+          style = "margin-top: -15px; margin-bottom: 15px;",
+          checkboxInput("override_output", "Override existing output directory", value = FALSE)
+        ),
         hr(),
         accordion(
           open=FALSE,
@@ -694,6 +698,10 @@ server <- function(input, output, session) {
     # Create output directory if it doesn't exist and normalize path
     if (!dir.exists(config_list$out_path)) {
       dir.create(config_list$out_path, recursive = TRUE, showWarnings = FALSE)
+    } else if (isolate(input$override_output)) {
+      # Delete directory and recreate if override is checked
+      unlink(config_list$out_path, recursive = TRUE)
+      dir.create(config_list$out_path, recursive = TRUE, showWarnings = FALSE)
     }
     config_list$out_path <- normalizePath(config_list$out_path, winslash = "/", mustWork = TRUE)
     
@@ -811,7 +819,13 @@ server <- function(input, output, session) {
               # Initial setup progress
               
               if (dir.exists(input_params$out_path)){
-                updateProgressText("Populating outputs to existing directory...")
+                if (input$override_output) {
+                  updateProgressText("Overriding existing directory...")
+                  unlink(input_params$out_path, recursive = TRUE)
+                  dir.create(file.path(input_params$out_path), showWarnings = F, recursive = T)
+                } else {
+                  updateProgressText("Populating outputs to existing directory...")
+                }
               } else{
                 updateProgressText("Creating output directory...")
                 dir.create(file.path(input_params$out_path), showWarnings = F, recursive = T)
@@ -845,8 +859,8 @@ server <- function(input, output, session) {
               # Initialize summary table
               total_iterations <- length(delta) * length(lambda)
               current_iteration <- 0
-              summary_table <- as.data.frame(matrix(NA, nrow = total_iterations, ncol = 7))
-              colnames(summary_table) <- c('delta', 'lambda', 'f_size', 'Num_of_LFs', 'Num_of_Sig_LFs', 'Num_of_Interactors', 'sampleCV_Performance')
+              summary_table <- as.data.frame(matrix(NA, nrow = total_iterations, ncol = 10))
+              colnames(summary_table) <- c('delta', 'lambda', 'f_size', 'Num_of_LFs', 'Num_of_Sig_LFs', 'Num_of_Interactors', 'sampleCV_Performance', 'spec', 'fdr', 'thresh_fdr')
 
               for (d in delta) {
                 for (l in lambda) {
@@ -971,19 +985,19 @@ server <- function(input, output, session) {
                         interactors = unique(interactors)
                         loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
                                        all_latent_factors$K, length(SLIDE_res$marginal_vals), 
-                                       length(interactors), performance)
+                                       length(interactors), performance, spec, fdr, thresh_fdr)
                       } else {
                         loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
                                        all_latent_factors$K, length(SLIDE_res$marginal_vals), 
-                                       'NA', performance)
+                                       'NA', performance, spec, fdr, thresh_fdr)
                       }
                     } else {
                       loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
-                                     all_latent_factors$K, "NA", "NA", "NA")
+                                     all_latent_factors$K, "NA", "NA", "NA", spec, fdr, thresh_fdr)
                     }
                   } else {
                     loop_summary = c(d, l, SLIDE_res$SLIDE_param['f_size'], 
-                                   all_latent_factors$K, "NA", "NA", "NA")
+                                   all_latent_factors$K, "NA", "NA", "NA", spec, fdr, thresh_fdr)
                   }
                   
                   summary_table[current_iteration, ] = loop_summary
@@ -991,7 +1005,39 @@ server <- function(input, output, session) {
                 }
               }
 
-              write.csv(summary_table, paste0(input_params$out_path, "/summary_table.csv"))
+              # Check if summary table file already exists and append if it does
+              summary_file_path <- paste0(input_params$out_path, "/summary_table.csv")
+              if (file.exists(summary_file_path)) {
+                # Read existing summary table
+                existing_summary <- tryCatch({
+                  read.csv(summary_file_path)
+                }, error = function(e) {
+                  # If there's an error reading (e.g., malformed file), return NULL
+                  NULL
+                })
+                
+                if (!is.null(existing_summary) && ncol(existing_summary) == ncol(summary_table) + 1) {
+                  # Remove row names column (X) from existing summary table for comparison
+                  existing_summary <- existing_summary[, -1]
+                  
+                  # Check if columns match (might have different column names)
+                  if (all(colnames(existing_summary) == colnames(summary_table))) {
+                    # Append new results to existing data
+                    combined_summary <- rbind(existing_summary, summary_table)
+                    # Write combined results back to file
+                    write.csv(combined_summary, summary_file_path)
+                  } else {
+                    # If column names don't match, write new file
+                    write.csv(summary_table, summary_file_path)
+                  }
+                } else {
+                  # If structure doesn't match or file couldn't be read, write new file
+                  write.csv(summary_table, summary_file_path)
+                }
+              } else {
+                # If file doesn't exist, write new file
+                write.csv(summary_table, summary_file_path)
+              }
               
               # Store results in reactive values
               results$summary_table <- summary_table
@@ -1214,25 +1260,42 @@ server <- function(input, output, session) {
     req(input$results_path)
     if (input$results_path == "") return()
     
-    path <- normalizePath(input$results_path, winslash = "/")
-    current_dir(path)
+    # First check if the path is already the current directory to avoid loops
+    if (!is.null(current_dir()) && normalizePath(input$results_path, winslash = "/") == current_dir()) {
+      return()  # Skip if the path hasn't changed
+    }
     
-    # Update directory contents
-    dir_contents(get_dir_contents(path))
+    path <- normalizePath(input$results_path, winslash = "/")
+    
+    # Use isolate to break the reactive dependency chain
+    isolate({
+      current_dir(path)
+      # Update directory contents
+      dir_contents(get_dir_contents(path))
+    })
     
     # Check for summary table
     summary_file <- file.path(path, "summary_table.csv")
     if (file.exists(summary_file)) {
       tryCatch({
         summary_table <- read.csv(summary_file)
-        results$summary_table <- summary_table
-        results$current_output_path <- path
+        # Use isolate to prevent reactivity cascade
+        isolate({
+          results$summary_table <- summary_table
+          results$current_output_path <- path
+        })
         showNotification("Results loaded successfully!", type = "message")
       }, error = function(e) {
         showNotification(sprintf("Error loading results: %s", e$message), type = "error")
       })
+    } else {
+      # Clear results if no summary table found
+      isolate({
+        results$summary_table <- NULL
+        results$current_output_path <- NULL
+      })
     }
-  })
+  }, ignoreInit = TRUE)  # Ignore initial value to prevent loading on startup
 
   # Directory browser output
   output$dir_browser <- renderDT({
@@ -1312,8 +1375,12 @@ server <- function(input, output, session) {
     
     # Get selected path and update input
     selected_path <- contents$path[input$dir_browser_rows_selected]
-    updateTextInput(session, "results_path", value = selected_path)
-  })
+    
+    # Check if the path is already set to avoid update loops
+    if (!is.null(input$results_path) && selected_path != input$results_path) {
+      updateTextInput(session, "results_path", value = selected_path)
+    }
+  }, ignoreInit = TRUE)  # Ignore initial value to prevent immediate triggering
 
   output$results_cards <- renderUI({
     if (is.null(results$summary_table)) {

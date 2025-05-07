@@ -47,3 +47,14 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Shiny app files
+slide_results
+www
+*.RData
+*.Rds
+*.Rda
+*.Rdata
+*.Rds
+*.Rda
+*.Rdata
